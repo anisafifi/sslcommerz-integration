@@ -1,0 +1,321 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+enum OrderStatus {
+  PENDING      // Created, awaiting payment
+  PROCESSING   // Payment initiated, waiting for confirmation
+  PAID         // Payment confirmed and validated
+  FAILED       // Payment failed or cancelled
+  CANCELLED    // Cancelled by customer or merchant
+  REFUNDED     // Fully refunded
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentStatus {
+  INITIATED    // Session created at SSLCommerz
+  VALID        // Successful transaction (from IPN / validation)
+  VALIDATED    // Already validated once
+  FAILED
+  CANCELLED
+  UNATTEMPTED
+  EXPIRED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  REFUNDED
+  FAILED
+}
+
+// ─── Customer ─────────────────────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses Address[]
+  orders    Order[]
+
+  @@map("customers")
+}
+
+// ─── Address ──────────────────────────────────────────────────────────────
+
+model Address {
+  id         String  @id @default(cuid())
+  customerId String?
+  name       String? // ship_name
+
+  // Street
+  add1       String
+  add2       String?
+  city       String
+  state      String?
+  subCity    String? // ship_sub_city
+  area       String? // ship_area
+  postcode   String
+  country    String
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer         Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  shippingOrders   Order[]   @relation("ShippingAddress")
+  billingOrders    Order[]   @relation("BillingAddress")
+
+  @@map("addresses")
+}
+
+// ─── Product ──────────────────────────────────────────────────────────────
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  category    String
+  profile     String  @default("general") // SSLCommerz product_profile
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variants   ProductVariant[]
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  name      String  // e.g. "Midnight Black", "13-inch Brown"
+  sku       String? @unique
+  price     Decimal @db.Decimal(10, 2)
+  stock     Int     @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@map("product_variants")
+}
+
+// ─── Order ────────────────────────────────────────────────────────────────
+
+model Order {
+  id         String      @id @default(cuid())
+  // The merchant tran_id sent to SSLCommerz — must be unique per attempt
+  tranId     String      @unique
+  customerId String?
+  status     OrderStatus @default(PENDING)
+
+  // Pricing (mirrors SSLCommerz initiation params)
+  subtotal        Decimal @db.Decimal(10, 2)
+  shippingAmount  Decimal @db.Decimal(10, 2) @default(0)
+  taxAmount       Decimal @db.Decimal(10, 2) @default(0)
+  discountAmount  Decimal @db.Decimal(10, 2) @default(0)
+  promoDiscount   Decimal @db.Decimal(10, 2) @default(0)
+  convenienceFee  Decimal @db.Decimal(10, 2) @default(0)
+  vatAmount       Decimal @db.Decimal(10, 2) @default(0)
+  totalAmount     Decimal @db.Decimal(10, 2)
+  currency        String  @default("BDT")
+
+  // Promo
+  promoCode   String?
+
+  // Customer snapshot (stored at time of order in case customer updates later)
+  cusEmail    String
+  cusName     String
+  cusPhone    String?
+
+  // Shipping
+  shippingAddressId String?
+  billingAddressId  String?
+
+  // SSLCommerz pass-through fields
+  valueA  String?
+  valueB  String?
+  valueC  String?
+  valueD  String?
+
+  // Product info (SSLCommerz level)
+  productCategory String?
+  productProfile  String  @default("general")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  shippingAddress Address?  @relation("ShippingAddress", fields: [shippingAddressId], references: [id])
+  billingAddress  Address?  @relation("BillingAddress", fields: [billingAddressId], references: [id])
+  items           OrderItem[]
+  payments        Payment[]
+  refunds         Refund[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+// ─── OrderItem ────────────────────────────────────────────────────────────
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String?
+  variantId String?
+
+  // Snapshot at time of purchase
+  productName   String
+  variantName   String?
+  sku           String?
+  quantity      Int
+  unitPrice     Decimal @db.Decimal(10, 2)
+  totalPrice    Decimal @db.Decimal(10, 2)
+
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ─── Payment ──────────────────────────────────────────────────────────────
+// One order can have multiple payment attempts (customer retries, etc.)
+
+model Payment {
+  id      String        @id @default(cuid())
+  orderId String
+
+  // SSLCommerz session
+  sessionKey String?   @unique
+  status     PaymentStatus @default(INITIATED)
+
+  // Returned after validation
+  valId        String?  @unique  // SSLCommerz val_id
+  bankTranId   String?           // bank_tran_id
+  tranDate     DateTime?
+
+  // Amounts (as returned by SSLCommerz — may differ due to currency conversion)
+  amount        Decimal?  @db.Decimal(10, 2)
+  storeAmount   Decimal?  @db.Decimal(10, 2)
+  currency      String?
+  currencyType  String?
+  currencyAmount Decimal? @db.Decimal(10, 2)
+  currencyRate  Decimal?  @db.Decimal(10, 5)
+
+  // Card / gateway info
+  cardType              String?
+  cardNo                String?   // masked
+  cardBrand             String?
+  cardIssuer            String?
+  cardIssuerCountry     String?
+  cardIssuerCountryCode String?
+
+  // EMI
+  emiInstalment Int?
+  emiAmount     Decimal? @db.Decimal(10, 2)
+  emiDescription String?
+  emiIssuer     String?
+
+  // Discount (campaign by SSLCOMMERZ)
+  discountAmount     Decimal? @db.Decimal(10, 2)
+  discountPercentage Decimal? @db.Decimal(10, 2)
+  discountRemarks    String?
+
+  // Risk
+  riskLevel Int?     // 0 = safe, 1 = risky
+  riskTitle String?
+
+  // IPN raw payload stored for audit
+  ipnPayload Json?
+
+  // Timestamps
+  validatedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+
+  @@index([orderId])
+  @@index([sessionKey])
+  @@index([valId])
+  @@index([bankTranId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ─── Refund ───────────────────────────────────────────────────────────────
+
+model Refund {
+  id        String       @id @default(cuid())
+  orderId   String
+  paymentId String
+
+  // SSLCommerz refund fields
+  bankTranId   String      // original bank_tran_id from Payment
+  refundRefId  String?     @unique  // returned by SSLCommerz on initiation
+  refundAmount Decimal     @db.Decimal(10, 2)
+  refundRemarks String
+  refeId       String?     // merchant's own reference
+
+  status       RefundStatus @default(PENDING)
+  initiatedOn  DateTime?
+  refundedOn   DateTime?
+  errorReason  String?
+
+  // Raw API response for audit
+  apiResponse  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+// ─── PromoCode ────────────────────────────────────────────────────────────
+
+model PromoCode {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  discountAmount  Decimal? @db.Decimal(10, 2)
+  discountPercent Decimal? @db.Decimal(5, 2)
+  maxUses         Int?
+  usedCount       Int      @default(0)
+  expiresAt       DateTime?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("promo_codes")
+}
