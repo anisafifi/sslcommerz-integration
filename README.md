@@ -9,6 +9,9 @@ It includes:
 - Order/payment persistence with PostgreSQL + Prisma
 - Success / fail / cancel handling
 
+
+[preview](./screenshot.png)
+
 ---
 
 ## Tech Stack
