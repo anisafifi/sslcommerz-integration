@@ -2,6 +2,9 @@
 
 This project is a complete tutorial-style implementation of **SSLCommerz payment gateway integration** using modern Next.js server architecture.
 
+![preview](./payment-process.png)
+
+
 It includes:
 - Checkout and order creation
 - SSLCommerz session initiation
