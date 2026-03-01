@@ -10,7 +10,7 @@ It includes:
 - Success / fail / cancel handling
 
 
-[preview](./screenshot.png)
+![preview](./screenshot.png)
 
 ---
 
