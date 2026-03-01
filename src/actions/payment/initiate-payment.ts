@@ -3,8 +3,11 @@
 import { z } from 'zod'
 import { CONFIG } from '@/global-config'
 import { prisma } from '@/lib/prisma'
+import { rateLimit } from '@/lib/rate-limit'
 import { InitiatePaymentResponse, SSLCommerzEnv } from '@/types/payment-types'
+import { products } from '@/data/products'
 import { initiatePayment } from './sslcommerz'
+import { headers } from 'next/headers'
 
 // ─── Input schema (mirrors checkout form) ─────────────────────────────────
 
@@ -24,21 +27,26 @@ type CheckoutFormData = z.infer<typeof checkoutSchema> & {
   newsletter?: boolean
 }
 
-type CartItem = {
+type CartItemInput = {
   id: number | string
+  variant?: string
+  quantity: number
+}
+
+type OrderSummaryInput = {
+  items: CartItemInput[]
+}
+
+type ServerPricedCartItem = {
+  id: number
   name: string
   variant?: string
   price: number
   quantity: number
 }
 
-type OrderSummaryInput = {
-  items: CartItem[]
-  shipping: number
-  tax: number
-  discount: number
-  promoDiscount: number
-}
+const SHIPPING_FEE = 120.00
+const TAX_RATE = 0.07
 
 // ─── Return type (discriminated union) ────────────────────────────────────
 
@@ -54,6 +62,16 @@ export async function sslInitiatePayment(
   env: string = 'sandbox',
   orderSummary: OrderSummaryInput,
 ): Promise<InitiatePaymentResult> {
+
+  const requestHeaders = await headers()
+  const request = new Request('http://localhost', { headers: requestHeaders })
+
+  if (await rateLimit(request)) {
+    return {
+      status: 'FAILED',
+      message: 'Too many requests. Please wait a moment and try again.',
+    }
+  }
 
   // ── 1. Server-side validation ────────────────────────────────────────────
 
@@ -72,17 +90,64 @@ export async function sslInitiatePayment(
 
   // ── 2. Compute totals ────────────────────────────────────────────────────
 
-  const subtotal = orderSummary.items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0,
-  )
+  if (orderSummary.items.length === 0) {
+    return {
+      status: 'FAILED',
+      message: 'Cart is empty.',
+    }
+  }
+
+  const serverPricedItems: ServerPricedCartItem[] = []
+
+  for (const item of orderSummary.items) {
+    const productId = Number(item.id)
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return {
+        status: 'FAILED',
+        message: 'Invalid cart item.',
+      }
+    }
+
+    const quantity = Math.floor(item.quantity)
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return {
+        status: 'FAILED',
+        message: 'Invalid item quantity.',
+      }
+    }
+
+    const product = products.find(p => p.id === productId)
+
+    if (!product) {
+      return {
+        status: 'FAILED',
+        message: 'One or more cart items are invalid.',
+      }
+    }
+
+    serverPricedItems.push({
+      id: product.id,
+      name: product.title,
+      variant: item.variant,
+      price: product.price,
+      quantity,
+    })
+  }
+
+  const subtotal = serverPricedItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const shippingAmount = SHIPPING_FEE
+  const taxAmount = parseFloat((subtotal * TAX_RATE).toFixed(2))
+  const discountAmount = 0
+  const promoDiscountAmount = 0
+
   const totalAmount = parseFloat(
     (
       subtotal +
-      orderSummary.shipping +
-      orderSummary.tax -
-      orderSummary.discount -
-      orderSummary.promoDiscount
+      shippingAmount +
+      taxAmount -
+      discountAmount -
+      promoDiscountAmount
     ).toFixed(2),
   )
 
@@ -100,6 +165,8 @@ export async function sslInitiatePayment(
   let orderId: string
 
   try {
+    
+    // All DB operations are wrapped in a transaction to ensure atomicity.
     const order = await prisma.$transaction(async tx => {
 
       // 4a. Upsert customer — only when email is provided
@@ -141,10 +208,10 @@ export async function sslInitiatePayment(
           status:          'PENDING',
 
           subtotal,
-          shippingAmount:  orderSummary.shipping,
-          taxAmount:       orderSummary.tax,
-          discountAmount:  orderSummary.discount,
-          promoDiscount:   orderSummary.promoDiscount,
+          shippingAmount,
+          taxAmount,
+          discountAmount,
+          promoDiscount:   promoDiscountAmount,
           convenienceFee:  0,
           vatAmount:       0,
           totalAmount,
@@ -180,7 +247,7 @@ export async function sslInitiatePayment(
 
       // 4e. Order items — price snapshot
       await tx.orderItem.createMany({
-        data: orderSummary.items.map(item => ({
+        data: serverPricedItems.map(item => ({
           orderId:     newOrder.id,
           productId:   null,
           variantId:   null,
@@ -234,11 +301,11 @@ export async function sslInitiatePayment(
         cancel_url:  `${CONFIG.appUrl}/payment/cancel?tran_id=${tranId}`,
         ipn_url:     `${CONFIG.appUrl}/api/payment/ipn`,
 
-        product_name:     orderSummary.items.map(i => i.name).join(', ').slice(0, 255),
+        product_name:     serverPricedItems.map(i => i.name).join(', ').slice(0, 255),
         product_category: 'general',
         product_profile:  'general',
         product_amount:   subtotal,
-        vat:              parseFloat(orderSummary.tax.toFixed(2)),
+        vat:              taxAmount,
         shipping_method:  'NO',
 
         cus_name:     cusName,
@@ -254,7 +321,7 @@ export async function sslInitiatePayment(
         value_a: orderId,
         value_b: tranId,
 
-        cart: orderSummary.items.map(item => ({
+        cart: serverPricedItems.map(item => ({
           product:    item.name.slice(0, 255),
           quantity:   String(item.quantity),
           amount:     item.price.toFixed(2),
@@ -262,6 +329,7 @@ export async function sslInitiatePayment(
         })),
       },
       env as SSLCommerzEnv,
+      request,
     )
   } catch (sslError) {
     console.error('[sslInitiatePayment] SSLCommerz error:', sslError)

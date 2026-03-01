@@ -1,6 +1,7 @@
 "use server";
 
 import { BASE_URLS } from "./config";
+import { rateLimit } from "@/lib/rate-limit";
 import type {
   RefundParams,
   RefundResponse,
@@ -13,8 +14,13 @@ import type {
 
 export async function initiateRefund(
   params: RefundParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<RefundResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   const url = new URL(BASE_URLS[env].validator);
   url.searchParams.set("bank_tran_id", params.bank_tran_id);
   url.searchParams.set("store_id", params.store_id);
@@ -36,8 +42,13 @@ export async function initiateRefund(
 
 export async function queryRefundStatus(
   params: RefundStatusParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<RefundStatusResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   const url = new URL(BASE_URLS[env].validator);
   url.searchParams.set("refund_ref_id", params.refund_ref_id);
   url.searchParams.set("store_id", params.store_id);

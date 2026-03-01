@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { validatePayment } from "./payments";
+import { rateLimit } from "@/lib/rate-limit";
 import type {
   IpnPayload,
   SSLCommerzEnv,
@@ -68,8 +69,13 @@ export async function handleIpn(
   payload: IpnPayload,
   storeId: string,
   storePasswd: string,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<{ valid: boolean; data: ValidationResponse | null; reason?: string }> {
+  if (request && (await rateLimit(request))) {
+    return { valid: false, data: null, reason: "Too many requests" };
+  }
+
   
   if (payload.status !== "VALID") {
     return {
@@ -87,7 +93,7 @@ export async function handleIpn(
     return { valid: false, data: null, reason: "IPN signature mismatch" };
   }
 
-  const data = await validatePayment(payload.val_id, storeId, storePasswd, env);
+  const data = await validatePayment(payload.val_id, storeId, storePasswd, env, request);
 
   if (data.status !== "VALID" && data.status !== "VALIDATED") {
     return {

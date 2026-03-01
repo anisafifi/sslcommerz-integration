@@ -1,3 +1,4 @@
+"use server";
 // IMPORTANT: Never trust the redirect params alone.
 // Always load the order from your own DB using tran_id.
 // The params are only used as a lookup key.

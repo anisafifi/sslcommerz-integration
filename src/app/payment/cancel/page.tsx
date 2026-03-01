@@ -1,3 +1,5 @@
+"use server";
+
 // SSLCommerz redirects here when the customer explicitly closes or
 // cancels the payment window before completing the transaction.
 
@@ -8,6 +10,8 @@ import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
+import { paths } from '@/routes/paths'
+import { redirect } from 'next/navigation'
 
 type CancelSearchParams = {
   tran_id?: string
@@ -22,6 +26,9 @@ type Props = {
 export default async function PaymentCancelPage({ searchParams }: Props) {
   const params = await searchParams
   const tranId = params.tran_id
+
+  // No tran_id in URL → can't look anything up
+  if (!tranId) redirect(paths.root)
 
   // ── Load order from DB ───────────────────────────────────────────────────
 

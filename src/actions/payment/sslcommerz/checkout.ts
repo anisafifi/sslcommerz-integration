@@ -1,4 +1,5 @@
 import { initiatePayment } from "./payments";
+import { rateLimit } from "@/lib/rate-limit";
 import type {
   InitiatePaymentParams,
   SSLCommerzEnv,
@@ -15,9 +16,14 @@ export function getEasyCheckoutScriptUrl(env: SSLCommerzEnv = "sandbox"): string
 
 export async function getGatewayUrl(
   params: InitiatePaymentParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<string> {
-  const response = await initiatePayment(params, env);
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
+  const response = await initiatePayment(params, env, request);
 
   if (response.status !== "SUCCESS" || !response.GatewayPageURL) {
     throw new Error(
@@ -30,10 +36,19 @@ export async function getGatewayUrl(
 
 export async function getEasyCheckoutResponse(
   params: InitiatePaymentParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<{ status: "success" | "fail"; data: string | null; logo?: string; message?: string }> {
   try {
-    const response = await initiatePayment(params, env);
+    if (request && (await rateLimit(request))) {
+      return {
+        status: "fail",
+        data: null,
+        message: "Too many requests. Please wait and try again.",
+      };
+    }
+
+    const response = await initiatePayment(params, env, request);
 
     if (response.GatewayPageURL) {
       return {

@@ -312,7 +312,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     payload as IpnPayload,
     storeId,
     storePasswd,
-    env
+    env,
+    req
   );
 
   if (!ipnResult.valid || !ipnResult.data) {

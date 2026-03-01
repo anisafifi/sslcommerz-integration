@@ -1,5 +1,6 @@
 
 import { BASE_URLS } from "./config";
+import { rateLimit } from "@/lib/rate-limit";
 import type {
   QueryBySessionParams,
   QueryByTranIdParams,
@@ -14,8 +15,13 @@ import type {
 
 export async function queryTransactionBySession(
   params: QueryBySessionParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<ValidationResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   const url = new URL(BASE_URLS[env].validator);
   url.searchParams.set("sessionkey", params.sessionkey);
   url.searchParams.set("store_id", params.store_id);
@@ -34,8 +40,13 @@ export async function queryTransactionBySession(
 
 export async function queryTransactionByTranId(
   params: QueryByTranIdParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<QueryByTranIdResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   
   const url = new URL(BASE_URLS[env].validator);
   url.searchParams.set("tran_id", params.tran_id);

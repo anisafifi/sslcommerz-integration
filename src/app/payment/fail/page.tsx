@@ -1,3 +1,5 @@
+"use server";
+
 // SSLCommerz redirects here when payment fails or is cancelled.
 // Same rule as success: only use tran_id from params as a lookup key,
 // display everything from your own DB.
@@ -9,6 +11,8 @@ import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
+import { paths } from '@/routes/paths'
+import { redirect } from 'next/navigation'
 
 type FailSearchParams = {
   tran_id?: string
@@ -65,6 +69,10 @@ export default async function PaymentFailPage({ searchParams }: Props) {
   const params = await searchParams
   const tranId       = params.tran_id
   const statusParam  = params.status?.toUpperCase()
+
+  
+    // No tran_id in URL → can't look anything up
+    if (!tranId) redirect(paths.root)
 
   // ── Load order from DB if we have a tran_id ──────────────────────────────
 

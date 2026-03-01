@@ -1,6 +1,7 @@
 "use server";
 
 import { BASE_URLS, VALIDATION_URL } from "./config";
+import { rateLimit } from "@/lib/rate-limit";
 import type {
   InitiatePaymentParams,
   InitiatePaymentResponse,
@@ -12,8 +13,13 @@ import type {
 
 export async function initiatePayment(
   params: InitiatePaymentParams,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<InitiatePaymentResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   
   const url = BASE_URLS[env].payment;
   
@@ -45,8 +51,13 @@ export async function validatePayment(
   valId: string,
   storeId: string,
   storePasswd: string,
-  env: SSLCommerzEnv = "sandbox"
+  env: SSLCommerzEnv = "sandbox",
+  request?: Request,
 ): Promise<ValidationResponse> {
+  if (request && (await rateLimit(request))) {
+    throw new Error("Too many requests. Please wait and try again.");
+  }
+
   const url = new URL(VALIDATION_URL[env]);
   url.searchParams.set("val_id", valId);
   url.searchParams.set("store_id", storeId);

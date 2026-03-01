@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { CreditCard, DollarSign, Gift, Shield, Tag, Truck } from 'lucide-react'
+import { CreditCard, Gift, Shield, Truck } from 'lucide-react'
 import { CONFIG } from '@/global-config'
 import { useCart } from '@/context/cart-context'
 import { sslInitiatePayment } from '@/actions/payment/initiate-payment'
@@ -91,15 +91,9 @@ export function CheckoutForm() {
         {
           items: state.items.map(item => ({
             id: item.id,
-            name: item.title,
             variant: item.description,
-            price: item.price,
             quantity: item.quantity,
           })),
-          shipping: SHIPPING_FEE,
-          tax,
-          discount: 0,
-          promoDiscount: 0,
         },
       )
 
@@ -161,7 +155,7 @@ export function CheckoutForm() {
         <Card>
           <CardHeader>
             <CardTitle className='text-balance'>Contact Information</CardTitle>
-            <CardDescription>We'll use this to send you order updates</CardDescription>
+            <CardDescription>We&apos;ll use this to send you order updates</CardDescription>
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='grid gap-4 md:grid-cols-2'>
