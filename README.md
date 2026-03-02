@@ -1,6 +1,6 @@
 # SSLCommerz Integration Tutorial (Next.js + Prisma)
 
-This project is a complete tutorial-style implementation of **SSLCommerz payment gateway integration** using modern Next.js server architecture.
+This project is a complete implementation of **SSLCommerz payment gateway integration** using modern Next.js server architecture.
 
 ![preview](./payment-process.png)
 
